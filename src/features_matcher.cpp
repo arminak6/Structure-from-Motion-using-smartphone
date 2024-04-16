@@ -1,7 +1,17 @@
 #include "features_matcher.h"
 
+
+#include <opencv2/imgproc.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/flann.hpp>
+#include "opencv2/highgui.hpp"
+#include "opencv2/features2d.hpp"
 #include <iostream>
 #include <map>
+
+using namespace cv;
+using namespace std;
 
 FeatureMatcher::FeatureMatcher(cv::Mat intrinsics_matrix, cv::Mat dist_coeffs, double focal_scale)
 {
@@ -38,10 +48,30 @@ void FeatureMatcher::extractFeatures()
     // it into feats_colors_[i] vector
     /////////////////////////////////////////////////////////////////////////////////////////
 
+    // define needed variables
 
+    // Ptr<ORB> orb = ORB::create();
+    Ptr<SIFT> sift = SIFT::create();
+    std::vector<cv::Vec3b> feature_colors;
+    std::vector<cv::KeyPoint> keypoints;
+    cv::Mat descriptors;
+    std::vector<cv::KeyPoint> features;
+    cv::Mat img_gray;
+
+    //convert RGB image to garyscale image
+    cvtColor(img, img_gray, cv::COLOR_BGR2GRAY);
+    //apply sift
+    sift->detectAndCompute(img_gray, cv::Mat(), features, descriptors);
+
+    features_[i] = features;
+    descriptors_[i] = descriptors;
+    feature_colors.resize(features.size());
+    for (int j = 0; j < features.size(); j++)
+    {
+      feature_colors[j] = img.at<cv::Vec3b>(features[j].pt.y, features[j].pt.x);
+    }
     
-    
-    
+    feats_colors_[i] = feature_colors;
     /////////////////////////////////////////////////////////////////////////////////////////
   }
 }
