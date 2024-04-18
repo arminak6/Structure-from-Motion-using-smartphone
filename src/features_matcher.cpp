@@ -116,7 +116,7 @@ void FeatureMatcher::exhaustiveMatching()
 
       // Extract corresponding keypoints from matched descriptors
       vector<Point2f> points1, points2;
-      for (size_t k = 0; k < matches.size(); k++)
+      for (int k = 0; k < matches.size(); k++)
       {
         points1.push_back(features_[i][matches[k].queryIdx].pt);
         points2.push_back(features_[j][matches[k].trainIdx].pt);
@@ -124,14 +124,24 @@ void FeatureMatcher::exhaustiveMatching()
 
 
       // Compute essential matrix and inliers
-      Mat mask;
-      Mat E = findEssentialMat(points1, points2, new_intrinsics_matrix_, RANSAC, 0.999, 1.0, mask);
-      Mat H = cv::findHomography(points1, points2, RANSAC, 1.0, mask);
+      Mat mask_E,mask_H;
+      Mat E = findEssentialMat(points1, points2, new_intrinsics_matrix_, RANSAC, 0.999, 1.0, mask_E);
+      int num_inliers_E = cv::countNonZero(mask_E);
 
 
+      Mat H = findHomography(points1, points2, RANSAC, 1.0, mask_H);
+      int num_inliers_H = cv::countNonZero(mask_H);
+
+
+      for (int k = 0; k < matches.size(); k++)
+      {
+        if ((num_inliers_E > num_inliers_H && mask_E.at<uchar>(k)) ||
+            (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k)))
+        {
+            inlier_matches.push_back(matches[k]);
+        }
+      }
       
-      
-
       /////////////////////////////////////////////////////////////////////////////////////////
 
     }
