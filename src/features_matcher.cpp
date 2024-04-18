@@ -102,7 +102,33 @@ void FeatureMatcher::exhaustiveMatching()
       /////////////////////////////////////////////////////////////////////////////////////////
 
       
+      // BFMatcher with Hamming distancez
+      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_HAMMING, true);
       
+      // Simple Match descriptors
+      matcher->match(descriptors_[i], descriptors_[j], matches);
+      // OR use KNN match
+      // matcher->knnMatch(descriptors_[i], descriptors_[j], matches, 2);
+
+
+      // Sort them in the order of their distance.
+      sort(matches.begin(), matches.end(), [](const DMatch& a, const DMatch& b) { return a.distance < b.distance; });
+
+      // Extract corresponding keypoints from matched descriptors
+      vector<Point2f> points1, points2;
+      for (size_t k = 0; k < matches.size(); k++)
+      {
+        points1.push_back(features_[i][matches[k].queryIdx].pt);
+        points2.push_back(features_[j][matches[k].trainIdx].pt);
+      }
+
+
+      // Compute essential matrix and inliers
+      Mat mask;
+      Mat E = findEssentialMat(points1, points2, new_intrinsics_matrix_, RANSAC, 0.999, 1.0, mask);
+      Mat H = cv::findHomography(points1, points2, RANSAC, 1.0, mask);
+
+
       
       
 
