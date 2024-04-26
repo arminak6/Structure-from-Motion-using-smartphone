@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Check if correct number of arguments are provided
+if [ $# -lt 3 ] || [ $# -gt 4 ]; then
+    echo "Usage: $0 <SAMPLE> <OUTPUT> <FOCAL> [-b]"
+    exit 1
+fi
+
+SAMPLE=$1
+OUTPUT=$2
+FOCAl=$3
+
+# Check if SAMPLE directory exists
+if [ ! -d "datasets/$SAMPLE" ]; then
+    echo "Error: Directory 'Examples/$SAMPLE' not found."
+    exit 1
+fi
+
+# Create build directory if it doesn't exist
+if [ ! -d "build" ]; then
+    mkdir build
+fi
+
+if [ ! -d "outputs" ]; then
+    mkdir outputs
+fi
+
+# Change to build directory
+cd build || exit
+
+# Check if optional argument to build is provided
+if [ "$4" == "-b" ]; then
+    # Build the C++ project
+    if ! cmake ../CMakeLists.txt; then
+        echo "Error: cmake failed."
+        exit 1
+    fi
+
+    if ! make matcher; then
+        echo "Error: make failed."
+        exit 1
+    fi
+fi
+
+cd .. || exit
+
+if [ ! -d "./bin" ]; then
+    echo "Error: Directory 'bin' not found."
+    exit 1
+fi
+
+# Run the command
+./bin/matcher datasets/3dp_cam.yml datasets/${SAMPLE} outputs/${OUTPUT} ${FOCAL}
