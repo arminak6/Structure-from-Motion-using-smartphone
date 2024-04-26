@@ -40,7 +40,6 @@ void FeatureMatcher::extractFeatures()
   {
     std::cout<<"Computing descriptors for image "<<i<<std::endl;
     cv::Mat img = readUndistortedImage(images_names_[i]);
-
     //////////////////////////// Code to be completed (1/7) /////////////////////////////////
     // Extract salient points + descriptors from i-th image, and store them into
     // features_[i] and descriptors_[i] vector, respectively
@@ -70,6 +69,14 @@ void FeatureMatcher::extractFeatures()
     {
       feature_colors[j] = img.at<cv::Vec3b>(features[j].pt.y, features[j].pt.x);
     }
+//
+//    Mat imgToShow = img.clone();
+//    for (int j = 0; j < features.size(); j++)
+//    {
+//      circle(imgToShow, features[j].pt, 2, Scalar(0, 0, 255), 2);
+//    }
+//      imshow(images_names_[i], imgToShow);
+//      waitKey(0);
     
     feats_colors_[i] = feature_colors;
     /////////////////////////////////////////////////////////////////////////////////////////
@@ -101,9 +108,8 @@ void FeatureMatcher::exhaustiveMatching()
       // setMatches( i, j, inlier_matches);
       /////////////////////////////////////////////////////////////////////////////////////////
 
-      
-      // BFMatcher with Hamming distancez
-      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_HAMMING, true);
+      // BFMatcher with Hamming distances
+      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_L2, true);
       
       // Simple Match descriptors
       matcher->match(descriptors_[i], descriptors_[j], matches);
@@ -113,7 +119,6 @@ void FeatureMatcher::exhaustiveMatching()
 
       // Sort them in the order of their distance.
       sort(matches.begin(), matches.end(), [](const DMatch& a, const DMatch& b) { return a.distance < b.distance; });
-
       // Extract corresponding keypoints from matched descriptors
       vector<Point2f> points1, points2;
       for (int k = 0; k < matches.size(); k++)
@@ -138,7 +143,7 @@ void FeatureMatcher::exhaustiveMatching()
         if ((num_inliers_E > num_inliers_H && mask_E.at<uchar>(k)) ||
             (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k)))
         {
-            inlier_matches.push_back(matches[k]);
+            setMatches(i,j,matches);
         }
       }
       
