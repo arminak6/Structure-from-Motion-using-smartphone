@@ -10,6 +10,8 @@
 #include <ceres/rotation.h>
 
 using namespace std;
+using namespace cv;
+
 
 struct ReprojectionError
 {
@@ -521,8 +523,25 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   /////////////////////////////////////////////////////////////////////////////////////////
 
   
-  
-  
+  // Compute and find Essential again
+  Mat E = findEssentialMat(points0, points1, intrinsics_matrix, RANSAC, 0.999, 0.001, inlier_mask_E);
+  int num_inliers_E = cv::countNonZero(inlier_mask_E);
+
+  // Compute and find homography again
+  Mat H = findHomography(points0, points1, RANSAC, 1.0, inlier_mask_H);
+  int num_inliers_H = cv::countNonZero(inlier_mask_H);
+
+  std::cout << "abas agha baghal "<< std::endl;
+    
+  if (num_inliers_E > num_inliers_H) {
+    cv::Mat R, t;
+      // Recover the initial rigid body transformation
+    cv::recoverPose(E, points0, points1, intrinsics_matrix, R, t, inlier_mask_E);
+    if (true) { //?
+        init_r_mat = R;
+        init_t_vec = t;
+    }
+    }
   
   
   
