@@ -15,6 +15,8 @@ using namespace cv;
 
 struct ReprojectionError
 {
+  double observed_x;
+  double observed_y;
   //////////////////////////// Code to be completed (5/7) //////////////////////////////////
   // This class should include an auto-differentiable cost function (see Ceres Solver docs).
   // Remember that we are dealing with a normalized, canonical camera:
@@ -24,11 +26,35 @@ struct ReprojectionError
   // WARNING: When dealing with the AutoDiffCostFunction template parameters,
   // pay attention to the order of the template parameters
   //////////////////////////////////////////////////////////////////////////////////////////
+    ReprojectionError(double observed_x, double observed_y)
+      : observed_x(observed_x), observed_y(observed_y) {}
   
-  
-  
-  
-  
+      template<typename T>
+      bool operator()(const T* const camera, const T* const point, T* residuals) const {
+
+        // Rotate the point to the camera frame
+        // camera[0,1,2] are the angle-axis rotation.
+        T point_cam[3];
+        ceres::AngleAxisRotatePoint(camera, point, point_cam);
+
+        // Translate the point to the camera frame
+        point_cam[0] += camera[3];
+        point_cam[1] += camera[4];
+        point_cam[2] += camera[5];
+
+        // Compute the projection
+        // the camera coordinate system has z axis.
+        T projected_x = point_cam[0] / point_cam[2];
+        T projected_y = point_cam[1] / point_cam[2]; 
+
+
+        // Compute residuals (difference between observed and projected)
+        // The error is the difference between the predicted and observed position.
+        residuals[0] = projected_x - T(observed_x);
+        residuals[1] = projected_y - T(observed_y);
+
+        return true;
+    }
   /////////////////////////////////////////////////////////////////////////////////////////
 };
 
@@ -531,7 +557,6 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   Mat H = findHomography(points0, points1, RANSAC, 0.001, inlier_mask_H);
   int num_inliers_H = cv::countNonZero(inlier_mask_H);
 
-  std::cout << "abas agha baghal "<< std::endl;
     
   if (!E.empty() && !H.empty() && num_inliers_E > num_inliers_H) {
     // Recover the initial rigid body transformation based on E
@@ -907,12 +932,8 @@ void BasicSfM::bundleAdjustmentIter( int new_cam_idx )
         // The camera position blocks have size (camera_block_size_) of 6 elements,
         // while the point position blocks have size (point_block_size_) of 3 elements.
         //////////////////////////////////////////////////////////////////////////////////
-
-
-        
-        
-        
-        
+      
+      
         /////////////////////////////////////////////////////////////////////////////////////////
 
       }
