@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Check if correct number of arguments are provided
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+    echo "Usage: $0 <DATA> <OUTPUT> [-b]"
+    exit 1
+fi
+
+DATA=$1
+OUTPUT=$2
+
+# Check if DATA directory exists
+#if [ ! -d "outputs/$DATA" ]; then
+#    echo "Error: Directory 'outputs/$DATA' not found."
+#    exit 1
+#fi
+
+# Create build directory if it doesn't exist
+if [ ! -d "build" ]; then
+    mkdir build
+fi
+
+if [ ! -d "outputs" ]; then
+    mkdir outputs
+fi
+
+# Change to build directory
+cd build || exit
+
+# Check if optional argument to build is provided
+if [ "$3" == "-b" ]; then
+    # Build the C++ project
+    if ! cmake ../CMakeLists.txt; then
+        echo "Error: cmake failed."
+        exit 1
+    fi
+
+    if ! make basic_sfm; then
+        echo "Error: make failed."
+        exit 1
+    fi
+fi
+
+cd .. || exit
+
+if [ ! -d "./bin" ]; then
+    echo "Error: Directory 'bin' not found."
+    exit 1
+fi
+
+# Run the command
+./bin/basic_sfm outputs/${DATA} outputs/${OUTPUT}
