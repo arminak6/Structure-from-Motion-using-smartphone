@@ -932,7 +932,25 @@ void BasicSfM::bundleAdjustmentIter( int new_cam_idx )
         // The camera position blocks have size (camera_block_size_) of 6 elements,
         // while the point position blocks have size (point_block_size_) of 3 elements.
         //////////////////////////////////////////////////////////////////////////////////
-      
+          double *observation = observations_.data() + (i_obs * 2);
+          // ceres::CostFunction *cost_function = ReprojectionError::Create(observation[0], observation[1]);
+
+          // Add a residual block inside the Ceres solver problem
+          ceres::CostFunction* cost_function =
+              new ceres::AutoDiffCostFunction <ReprojectionError, 2, 6, 3>(
+                new ReprojectionError(observation[0], observation[1]));
+
+
+
+          double *camera_params = parameters_.data() + camera_block_size_ * cam_pose_index_[i_obs];
+          double *point_params = parameters_.data() + camera_block_size_ * num_cam_poses_ + point_block_size_ * point_index_[i_obs];
+
+
+          // Define a Cauchy loss function
+          ceres::LossFunction *loss_function = new ceres::CauchyLoss(2 * max_reproj_err_);
+
+          // Add the residual block to the problem
+          problem.AddResidualBlock(cost_function, loss_function, camera_params, point_params);
       
         /////////////////////////////////////////////////////////////////////////////////////////
 
