@@ -26,35 +26,47 @@ struct ReprojectionError
   // WARNING: When dealing with the AutoDiffCostFunction template parameters,
   // pay attention to the order of the template parameters
   //////////////////////////////////////////////////////////////////////////////////////////
-    ReprojectionError(double observed_x, double observed_y)
-      : observed_x(observed_x), observed_y(observed_y) {}
-  
-      template<typename T>
-      bool operator()(const T* const camera, const T* const point, T* residuals) const {
+  ReprojectionError(double observed_x, double observed_y)
+      : observed_x(observed_x), observed_y(observed_y)
+  {
+  }
 
-        // Rotate the point to the camera frame
-        // camera[0,1,2] are the angle-axis rotation.
-        T point_cam[3];
-        ceres::AngleAxisRotatePoint(camera, point, point_cam);
+  template <typename T>
+  bool operator()(const T *const camera,
+                  const T *const point,
+                  T *residuals) const
+  {
+    // camera[0,1,2] are the angle-axis rotation.
+    T p[3];
+    ceres::AngleAxisRotatePoint(camera, point, p);
+    // camera[3,4,5] are the translation.
+    p[0] += camera[3];
+    p[1] += camera[4];
+    p[2] += camera[5];
 
-        // Translate the point to the camera frame
-        point_cam[0] += camera[3];
-        point_cam[1] += camera[4];
-        point_cam[2] += camera[5];
+    // Compute the center of distortion. The sign change comes from
+    // the camera model that Noah Snavely's Bundler assumes, whereby
+    // the camera coordinate system has a negative z axis.
+    T xp = p[0] / p[2];
+    T yp = p[1] / p[2];
 
-        // Compute the projection
-        // the camera coordinate system has z axis.
-        T projected_x = point_cam[0] / point_cam[2];
-        T projected_y = point_cam[1] / point_cam[2]; 
+    // The error is the difference between the predicted and observed position.
 
+    residuals[0] = xp - T(observed_x);
+    residuals[1] = yp - T(observed_y);
 
-        // Compute residuals (difference between observed and projected)
-        // The error is the difference between the predicted and observed position.
-        residuals[0] = projected_x - T(observed_x);
-        residuals[1] = projected_y - T(observed_y);
+    return true;
+  }
 
-        return true;
-    }
+  // Factory to hide the construction of the CostFunction object from
+  // the client code.
+  static ceres::CostFunction *Create(const double observed_x,
+                                     const double observed_y)
+  {
+    return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 3>(
+        new ReprojectionError(observed_x, observed_y)));
+  }
+
   /////////////////////////////////////////////////////////////////////////////////////////
 };
 
@@ -506,8 +518,7 @@ void BasicSfM::solve()
   }
 }
 
-bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1 )
-{
+bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1 ){
   // Reset all parameters: we are starting a brand new reconstruction from a new seed pair
   memset(parameters_.data(), 0, num_parameters_*sizeof(double));
   // Masks used to indicate which cameras and points have been optimized so far
@@ -549,36 +560,30 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   /////////////////////////////////////////////////////////////////////////////////////////
 
   
-  // Compute and find Essential again
-  Mat E = findEssentialMat(points0, points1, intrinsics_matrix, RANSAC, 0.999, 0.001, inlier_mask_E);
-  int num_inliers_E = cv::countNonZero(inlier_mask_E);
+    // Find homography
+    cv::Mat H = cv::findHomography(points0, points1, cv::RANSAC, 0.001, inlier_mask_H);
+    int n_inliers_H = cv::sum(inlier_mask_H)[0];
 
-  // Compute and find homography again
-  Mat H = findHomography(points0, points1, RANSAC, 0.001, inlier_mask_H);
-  int num_inliers_H = cv::countNonZero(inlier_mask_H);
+    // Find Essential
+    cv::Mat E = cv::findEssentialMat(points0, points1, intrinsics_matrix, cv::RANSAC, 0.995, 0.001, inlier_mask_E);
+    int n_inliers_E = cv::sum(inlier_mask_E)[0];
 
-    
-  if (!E.empty() && !H.empty() && num_inliers_E > num_inliers_H) {
-    // Recover the initial rigid body transformation based on E
-    cv::Mat R, t;
-    cv::recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
 
-    // Check if the recovered transformation is mainly given by a sideward motion
-    double abs_tx = fabs(t.at<double>(0, 0));
-    double abs_ty = fabs(t.at<double>(1, 0));
-    double abs_tz = fabs(t.at<double>(2, 0));
-    bool is_sideward_motion = abs_tx > abs_ty && abs_tx > abs_tz;
 
-    if (is_sideward_motion) {
-        // Promote the pair as seed pair and set the estimated transformation
-        std::cout << "Suitable seed pair found with sideward motion!" << std::endl;
-    } else {
-        std::cout << "Seed pair found, but not a sideward motion." << std::endl;
+    if (n_inliers_E > n_inliers_H)
+    {
+      recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
+
+      if (std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(0, 0)) &&
+          std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(1, 0)))
+      {
+        std::cout << "Forward Motion" << std::endl;
+      }
+      else
+      {
+{        std::cout << "Sideward Motion" << std::endl;
+}      }
     }
-  } else {
-    // No suitable seed pair found based on inlier masks or suitable transformation
-    std::cout << "No suitable seed pair found." << std::endl;
-  }
   
   
   
@@ -768,54 +773,53 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             // pt[2] = /*X coordinate of the estimated point */;
             /////////////////////////////////////////////////////////////////////////////////////////
 
-             // Triangulate the 3D point  
-            cv::Mat_<double> point_4d;
-            cv::triangulatePoints(proj_mat0, proj_mat1, points0, points1, point_4d);
+            cv::Point2d point0(observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx]],
+                               observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx] + 1]),
+                point1(observations_[2 * cam_observation_[cam_idx][pt_idx]],
+                       observations_[2 * cam_observation_[cam_idx][pt_idx] + 1]);
+
+            points0.emplace_back(point0);
+            points1.emplace_back(point1);
+
+            cv::Mat r_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]),
+                    r_mat_0;
+            cv::Rodrigues(r_vec_0, r_mat_0);
+            cv::Mat t_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
+            r_mat_0.copyTo(proj_mat0(cv::Rect(0, 0, 3, 3)));
+            t_vec_0.copyTo(proj_mat0(cv::Rect(3, 0, 1, 3)));
+
+            cv::Mat r_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]),
+                    r_mat_1;
+            cv::Rodrigues(r_vec_1, r_mat_1);
+
+            cv::Mat t_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
+
+            r_mat_1.copyTo(proj_mat1(cv::Rect(0, 0, 3, 3)));
+            t_vec_1.copyTo(proj_mat1(cv::Rect(3, 0, 1, 3)));
+
+            cv::triangulatePoints(proj_mat0, proj_mat1, points0, points1, hpoints4D);
 
             // Check the cheirality constraint
-            double x = point_4d.at<double>(0, 0) / point_4d.at<double>(3, 0);
-            double y = point_4d.at<double>(1, 0) / point_4d.at<double>(3, 0);
-            double z = point_4d.at<double>(2, 0) / point_4d.at<double>(3, 0);
+            double x = hpoints4D.at<double>(0, 0) / hpoints4D.at<double>(3, 0);
+            double y = hpoints4D.at<double>(1, 0) / hpoints4D.at<double>(3, 0);
+            double z = hpoints4D.at<double>(2, 0) / hpoints4D.at<double>(3, 0);
+            cv::Mat_<double> pt_3d_0 = (cv::Mat_<double>(3, 1) << x, y, z),
+                             pt_3d_1 = (cv::Mat_<double>(3, 1) << x, y, z);
+            pt_3d_0 = r_mat_0 * pt_3d_0 + t_vec_0;
+            pt_3d_1 = r_mat_1 * pt_3d_1 + t_vec_1;
 
-            // Obtain the camera parameters
-            cam0_data = cameraBlockPtr(new_cam_pose_idx);
-            cam1_data = cameraBlockPtr(cam_idx);
+            if (pt_3d_0.at<double>(2, 0) > 0.0 && pt_3d_1.at<double>(2, 0) > 0.0)
+            {
+              double *pt = pointBlockPtr(pt_idx);
+              pt[0] = hpoints4D.at<double>(0, 0) / hpoints4D.at<double>(3, 0);
+              pt[1] = hpoints4D.at<double>(1, 0) / hpoints4D.at<double>(3, 0);
+              pt[2] = hpoints4D.at<double>(2, 0) / hpoints4D.at<double>(3, 0);
+              pts_optim_iter_[pt_idx] = 1;
+              n_new_pts++;
+            }
 
-            // Extract the rotation and translation vectors
-            cv::Mat r_vec_new = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]);
-            cv::Mat t_vec_new = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
-
-            cv::Mat r_vec_old = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]);
-            cv::Mat t_vec_old = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
-
-
-            // Convert rotation vectors to rotation matrices
-            cv::Mat r_mat_new, r_mat_old;
-            cv::Rodrigues(r_vec_new, r_mat_new);
-            cv::Rodrigues(r_vec_old, r_mat_old);
-
-
-            // Apply rotation and translation to the 3D point
-            cv::Mat pt_3d_new = r_mat_new * (cv::Mat_<double>(3, 1) << x, y, z) + t_vec_new;
-            cv::Mat pt_3d_old = r_mat_old * (cv::Mat_<double>(3, 1) << x, y, z) + t_vec_old;
-
-            // Check if both points satisfy the cheirality constraint
-            bool is_valid_new = pt_3d_new.at<double>(2, 0) > 0.0;
-            bool is_valid_old = pt_3d_old.at<double>(2, 0) > 0.0;   
-
-
-            if (is_valid_new && is_valid_old) {
-                // Update the optimized points
-                double *pt = pointBlockPtr(pt_idx);
-                pt[0] = x;
-                pt[1] = y;
-                pt[2] = z;
-                pts_optim_iter_[pt_idx] = 1;
-                n_new_pts++;
-            } 
-
-            points0.clear();
-            points1.clear();
+           points0.clear();
+           points1.clear();
 
             /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -933,8 +937,7 @@ void BasicSfM::bundleAdjustmentIter( int new_cam_idx )
         // while the point position blocks have size (point_block_size_) of 3 elements.
         //////////////////////////////////////////////////////////////////////////////////
           double *observation = observations_.data() + (i_obs * 2);
-          // ceres::CostFunction *cost_function = ReprojectionError::Create(observation[0], observation[1]);
-
+          
           // Add a residual block inside the Ceres solver problem
           ceres::CostFunction* cost_function =
               new ceres::AutoDiffCostFunction <ReprojectionError, 2, 6, 3>(
