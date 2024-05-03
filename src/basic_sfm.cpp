@@ -439,6 +439,7 @@ void BasicSfM::printPointParams ( int idx ) const
 }
 
 
+
 void BasicSfM::solve()
 {
   // For each camera pose, prepare a map that reports the pairs [point index, observation index]
@@ -868,6 +869,7 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
         pts_optim_iter_[i] = -1;
       }
     }
+
     //////////////////////////// Code to be completed (7/7) //////////////////////////////////
     // The reconstruction may diverge, for example due to incorrect triangulations or
     // incorrect local minima found during the bundle adjustment. For example, this can lead
@@ -877,12 +879,100 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
     // must return false). To check if there was a divergence you could for example check how
     // the previous camera and point positions were updated during this iteration.
     /////////////////////////////////////////////////////////////////////////////////////////
+    // After each iteration of bundle adjustment
 
+  // Before bundle adjustment, save previous camera and point positions
+  std::vector<std::vector<double>> prev_camera_positions(num_cam_poses_);
+  std::vector<std::vector<double>> prev_point_positions(num_points_);
+
+  for(int i = 0; i < num_cam_poses_; i++)
+  {
+      if(cam_pose_optim_iter_[i])
+      {
+          double *camera = cameraBlockPtr(i);
+          prev_camera_positions[i].assign(camera, camera + 6); // Store camera pose
+      }
+  }
+
+  for(int i = 0; i < num_points_; i++)
+  {
+      if(pts_optim_iter_[i])
+      {
+          double *point = pointBlockPtr(i);
+          prev_point_positions[i].assign(point, point + 3); // Store point position
+      }
+  }
+
+
+
+      // Check for divergence based on the change in camera and point positions
+    double camera_change_threshold = 0.1; // Example threshold for camera position change
+    double point_change_threshold = 0.1;  // Example threshold for point position change
+    bool divergence_detected = false;
+
+    // Compare previous and updated camera positions
+    for(int i = 0; i < num_cam_poses_; i++)
+    {
+        if(cam_pose_optim_iter_[i])
+        {
+            double *camera = cameraBlockPtr(i);
+            std::vector<double> prev_camera = prev_camera_positions[i];
+
+            // Calculate Euclidean distance between previous and updated camera positions
+            double camera_change = 0.0;
+            for(int j = 0; j < 6; j++)
+                camera_change += std::pow(camera[j] - prev_camera[j], 2);
+            camera_change = std::sqrt(camera_change);
+
+            // Check if camera position change exceeds threshold
+            if(camera_change > camera_change_threshold)
+            {
+                divergence_detected = true;
+                break;
+            }
+        }
+    }
+
+    // Compare previous and updated point positions
+    for(int i = 0; i < num_points_; i++)
+    {
+        if(pts_optim_iter_[i])
+        {
+            double *point = pointBlockPtr(i);
+            std::vector<double> prev_point = prev_point_positions[i];
+
+            // Calculate Euclidean distance between previous and updated point positions
+            double point_change = 0.0;
+            for(int j = 0; j < 3; j++)
+                point_change += std::pow(point[j] - prev_point[j], 2);
+            point_change = std::sqrt(point_change);
+
+            // Check if point position change exceeds threshold
+            if(point_change > point_change_threshold)
+            {
+                divergence_detected = true;
+                break;
+            }
+        }
+    }
+
+    // If divergence is detected or any other condition for a bad reconstruction is met, return false
+    if(divergence_detected )
+    {
+        std::cout << "Bad reconstruction detected. Resetting reconstruction." << std::endl; 
+        reset();
+        return false;
+    }
+
+
+
+        
     // ....
     //  if( <bad reconstruction> )
     //    return false;
 
     /////////////////////////////////////////////////////////////////////////////////////////
+    // }
   }
 
   return true;
