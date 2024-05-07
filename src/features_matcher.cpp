@@ -47,37 +47,23 @@ void FeatureMatcher::extractFeatures()
     // it into feats_colors_[i] vector
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    // define needed variables
+    cv::Ptr<cv::Feature2D> sift = cv::SIFT::create();
 
-    // Ptr<ORB> orb = ORB::create();
-    Ptr<SIFT> sift = SIFT::create();
-    std::vector<cv::Vec3b> feature_colors;
+    // Detect keypoints and compute descriptors
     std::vector<cv::KeyPoint> keypoints;
     cv::Mat descriptors;
-    std::vector<cv::KeyPoint> features;
-    cv::Mat img_gray;
+    sift->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
 
-    //convert RGB image to garyscale image
-    cvtColor(img, img_gray, cv::COLOR_BGR2GRAY);
-    //apply sift
-    sift->detectAndCompute(img_gray, cv::Mat(), features, descriptors);
-
-    features_[i] = features;
+    // Store keypoints and descriptors
+    features_[i] = keypoints;
     descriptors_[i] = descriptors;
-    feature_colors.resize(features.size());
-    for (int j = 0; j < features.size(); j++)
+
+    // Extract colors of keypoints
+    std::vector<cv::Vec3b> feature_colors(keypoints.size());
+    for (int j = 0; j < keypoints.size(); j++)
     {
-      feature_colors[j] = img.at<cv::Vec3b>(features[j].pt.y, features[j].pt.x);
+        feature_colors[j] = img.at<cv::Vec3b>(keypoints[j].pt.y, keypoints[j].pt.x);
     }
-//
-//    Mat imgToShow = img.clone();
-//    for (int j = 0; j < features.size(); j++)
-//    {
-//      circle(imgToShow, features[j].pt, 2, Scalar(0, 0, 255), 2);
-//    }
-//      imshow(images_names_[i], imgToShow);
-//      waitKey(0);
-    
     feats_colors_[i] = feature_colors;
     /////////////////////////////////////////////////////////////////////////////////////////
   }
@@ -140,12 +126,28 @@ void FeatureMatcher::exhaustiveMatching()
 
       for (int k = 0; k < matches.size(); k++)
       {
-        if ((num_inliers_E > num_inliers_H && mask_E.at<uchar>(k)) ||
-            (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k)))
-        {
-            setMatches(i,j,matches);
-        }
+          // Check if the match is an inlier according to the Essential Matrix
+          if (num_inliers_E > num_inliers_H && mask_E.at<uchar>(k))
+          {
+              inlier_matches.push_back(matches[k]);
+          }
+          // Check if the match is an inlier according to the Homography Matrix
+          else if (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k))
+          {
+              inlier_matches.push_back(matches[k]);
+          }
       }
+
+      // Set matches if there are enough inliers
+      if (inlier_matches.size() > 5)
+      {
+          setMatches(i, j, inlier_matches);
+      }
+      else
+      {
+          std::cout << "Not enough inliers to set matches between image " << i << " and image " << j << std::endl;
+      }
+
       
       /////////////////////////////////////////////////////////////////////////////////////////
 
