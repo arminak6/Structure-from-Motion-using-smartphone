@@ -27,36 +27,30 @@ struct ReprojectionError
   // pay attention to the order of the template parameters
   //////////////////////////////////////////////////////////////////////////////////////////
   ReprojectionError(double observed_x, double observed_y)
-      : observed_x(observed_x), observed_y(observed_y)
-  {
-  }
+      : observed_x(observed_x), observed_y(observed_y) {}
 
-  template <typename T>
-  bool operator()(const T *const camera,
-                  const T *const point,
-                  T *residuals) const
-  {
+  template<typename T>
+  bool operator()(const T* const camera, const T* const point, T* residuals) const {
+
+    // Rotate the point to the camera frame
     // camera[0,1,2] are the angle-axis rotation.
-    T p[3];
-    ceres::AngleAxisRotatePoint(camera, point, p);
-    // camera[3,4,5] are the translation.
-    p[0] += camera[3];
-    p[1] += camera[4];
-    p[2] += camera[5];
+    T point_cam[3];
+    ceres::AngleAxisRotatePoint(camera, point, point_cam);
+    // Translate the point to the camera frame
+    point_cam[0] += camera[3];
+    point_cam[1] += camera[4];
+    point_cam[2] += camera[5];
 
-    // Compute the center of distortion. The sign change comes from
-    // the camera model that Noah Snavely's Bundler assumes, whereby
-    // the camera coordinate system has a negative z axis.
-    T xp = p[0] / p[2];
-    T yp = p[1] / p[2];
-
+    // Compute the projection
+    // the camera coordinate system has z axis.
+    T projected_x = point_cam[0] / point_cam[2];
+    T projected_y = point_cam[1] / point_cam[2];
+    // Compute residuals (difference between observed and projected)
     // The error is the difference between the predicted and observed position.
-
-    residuals[0] = xp - T(observed_x);
-    residuals[1] = yp - T(observed_y);
-
+    residuals[0] = projected_x - T(observed_x);
+    residuals[1] = projected_y - T(observed_y);
     return true;
-  }
+}
 
   // Factory to hide the construction of the CostFunction object from
   // the client code.
@@ -560,35 +554,25 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   // IN case of "good" sideward motion, store the transformation into init_r_mat and  init_t_vec; defined above
   /////////////////////////////////////////////////////////////////////////////////////////
 
-  
-    // Find homography
-    cv::Mat H = cv::findHomography(points0, points1, cv::RANSAC, 0.001, inlier_mask_H);
-    int n_inliers_H = cv::sum(inlier_mask_H)[0];
+  cv::Mat H = cv::findHomography(points0, points1, cv::RANSAC, 0.001, inlier_mask_H);
+  cv::Mat E = cv::findEssentialMat(points0, points1, intrinsics_matrix, cv::RANSAC, 0.995, 0.001, inlier_mask_E);
 
-    // Find Essential
-    cv::Mat E = cv::findEssentialMat(points0, points1, intrinsics_matrix, cv::RANSAC, 0.995, 0.001, inlier_mask_E);
-    int n_inliers_E = cv::sum(inlier_mask_E)[0];
-
-
-
-    if (n_inliers_E > n_inliers_H)
-    {
+  if (cv::sum(inlier_mask_E)[0] > cv::sum(inlier_mask_H)[0]) {
       recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
 
       if (std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(0, 0)) &&
           std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(1, 0)))
       {
-        std::cout << "Forward Motion" << std::endl;
+          std::cout << "Forward Motion" << std::endl;
+          return false;
       }
       else
       {
-{        std::cout << "Sideward Motion" << std::endl;
-}      }
-    }
-  
-  
-  
-
+          std::cout << "Sideward Motion" << std::endl;
+      }
+  } else {
+      return false;
+  }
   /////////////////////////////////////////////////////////////////////////////////////////
 
   int ref_cam_pose_idx = seed_pair_idx0, new_cam_pose_idx = seed_pair_idx1;
