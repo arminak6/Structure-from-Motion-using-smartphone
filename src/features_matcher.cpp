@@ -6,7 +6,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/flann.hpp>
 #include "opencv2/highgui.hpp"
-#include "opencv2/features2d.hpp"
+// #include "opencv2/features2d.hpp"
 #include <iostream>
 #include <map>
 
@@ -40,7 +40,6 @@ void FeatureMatcher::extractFeatures()
   {
     std::cout<<"Computing descriptors for image "<<i<<std::endl;
     cv::Mat img = readUndistortedImage(images_names_[i]);
-
     //////////////////////////// Code to be completed (1/7) /////////////////////////////////
     // Extract salient points + descriptors from i-th image, and store them into
     // features_[i] and descriptors_[i] vector, respectively
@@ -48,29 +47,23 @@ void FeatureMatcher::extractFeatures()
     // it into feats_colors_[i] vector
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    // define needed variables
+    cv::Ptr<cv::Feature2D> sift = cv::SIFT::create();
 
-    // Ptr<ORB> orb = ORB::create();
-    Ptr<SIFT> sift = SIFT::create();
-    std::vector<cv::Vec3b> feature_colors;
+    // Detect keypoints and compute descriptors
     std::vector<cv::KeyPoint> keypoints;
     cv::Mat descriptors;
-    std::vector<cv::KeyPoint> features;
-    cv::Mat img_gray;
+    sift->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
 
-    //convert RGB image to garyscale image
-    cvtColor(img, img_gray, cv::COLOR_BGR2GRAY);
-    //apply sift
-    sift->detectAndCompute(img_gray, cv::Mat(), features, descriptors);
-
-    features_[i] = features;
+    // Store keypoints and descriptors
+    features_[i] = keypoints;
     descriptors_[i] = descriptors;
-    feature_colors.resize(features.size());
-    for (int j = 0; j < features.size(); j++)
+
+    // Extract colors of keypoints
+    std::vector<cv::Vec3b> feature_colors(keypoints.size());
+    for (int j = 0; j < keypoints.size(); j++)
     {
-      feature_colors[j] = img.at<cv::Vec3b>(features[j].pt.y, features[j].pt.x);
+        feature_colors[j] = img.at<cv::Vec3b>(keypoints[j].pt.y, keypoints[j].pt.x);
     }
-    
     feats_colors_[i] = feature_colors;
     /////////////////////////////////////////////////////////////////////////////////////////
   }
@@ -101,46 +94,50 @@ void FeatureMatcher::exhaustiveMatching()
       // setMatches( i, j, inlier_matches);
       /////////////////////////////////////////////////////////////////////////////////////////
 
-      
-      // BFMatcher with Hamming distancez
-      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_HAMMING, true);
-      
-      // Simple Match descriptors
-      matcher->match(descriptors_[i], descriptors_[j], matches);
-      // OR use KNN match
-      // matcher->knnMatch(descriptors_[i], descriptors_[j], matches, 2);
+      // KNN Matcher
+      Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce");
+      vector<vector<DMatch>> knn_matches;
+      matcher->knnMatch(descriptors_[i], descriptors_[j], knn_matches, 2); // k=2 for KNN
 
-
-      // Sort them in the order of their distance.
-      sort(matches.begin(), matches.end(), [](const DMatch& a, const DMatch& b) { return a.distance < b.distance; });
-
-      // Extract corresponding keypoints from matched descriptors
-      vector<Point2f> points1, points2;
-      for (int k = 0; k < matches.size(); k++)
-      {
-        points1.push_back(features_[i][matches[k].queryIdx].pt);
-        points2.push_back(features_[j][matches[k].trainIdx].pt);
+      // Perform ratio test to filter matches
+      vector<DMatch> good_matches;
+      for (size_t k = 0; k < knn_matches.size(); k++) {
+          if (knn_matches[k][0].distance < 0.75 * knn_matches[k][1].distance) {
+              good_matches.push_back(knn_matches[k][0]);
+          }
       }
 
+      // Extract corresponding keypoints from matched descriptors
+      std::vector<Point2f> points1, points2;
+      for (const DMatch& match : good_matches) {
+          points1.push_back(features_[i][match.queryIdx].pt);
+          points2.push_back(features_[j][match.trainIdx].pt);
+      }
 
       // Compute essential matrix and inliers
-      Mat mask_E,mask_H;
+      Mat mask_E, mask_H;
       Mat E = findEssentialMat(points1, points2, new_intrinsics_matrix_, RANSAC, 0.999, 1.0, mask_E);
       int num_inliers_E = cv::countNonZero(mask_E);
-
 
       Mat H = findHomography(points1, points2, RANSAC, 1.0, mask_H);
       int num_inliers_H = cv::countNonZero(mask_H);
 
-
-      for (int k = 0; k < matches.size(); k++)
-      {
-        if ((num_inliers_E > num_inliers_H && mask_E.at<uchar>(k)) ||
-            (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k)))
-        {
-            inlier_matches.push_back(matches[k]);
-        }
+      // Filter inliers based on the matrix with more inliers
+      for (size_t k = 0; k < good_matches.size(); k++) {
+          if ((num_inliers_E > num_inliers_H && mask_E.at<uchar>(k)) || 
+              (num_inliers_E <= num_inliers_H && mask_H.at<uchar>(k))) {
+              inlier_matches.push_back(good_matches[k]);
+          }
       }
+
+      // Set matches if there are enough inliers
+      if (inlier_matches.size() > 5) {
+          setMatches(i, j, inlier_matches);
+      } else {
+          std::cout << "Not enough inliers to set matches between image " << i << " and image " << j << std::endl;
+      }
+
+
       
       /////////////////////////////////////////////////////////////////////////////////////////
 
