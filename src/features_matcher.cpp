@@ -47,12 +47,12 @@ void FeatureMatcher::extractFeatures()
     // it into feats_colors_[i] vector
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    cv::Ptr<cv::Feature2D> sift = cv::SIFT::create();
+    cv::Ptr<cv::Feature2D> orb = cv::ORB::create();
 
     // Detect keypoints and compute descriptors
     std::vector<cv::KeyPoint> keypoints;
     cv::Mat descriptors;
-    sift->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
+    orb->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
 
     // Store keypoints and descriptors
     features_[i] = keypoints;
@@ -95,7 +95,7 @@ void FeatureMatcher::exhaustiveMatching()
       /////////////////////////////////////////////////////////////////////////////////////////
 
       // BFMatcher with Hamming distances
-      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_L2, true);
+      Ptr<DescriptorMatcher> matcher = BFMatcher::create(NORM_HAMMING, true);
       
       // Simple Match descriptors
       matcher->match(descriptors_[i], descriptors_[j], matches);
