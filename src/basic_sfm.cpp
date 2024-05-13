@@ -26,40 +26,37 @@ struct ReprojectionError
   // WARNING: When dealing with the AutoDiffCostFunction template parameters,
   // pay attention to the order of the template parameters
   //////////////////////////////////////////////////////////////////////////////////////////
-  ReprojectionError(double observed_x, double observed_y)
+    ReprojectionError(double observed_x, double observed_y)
       : observed_x(observed_x), observed_y(observed_y) {}
+  
+      template<typename T>
+      bool operator()(const T* const camera, const T* const point, T* residuals) const {
 
-  template<typename T>
-  bool operator()(const T* const camera, const T* const point, T* residuals) const {
+        // Rotate the point to the camera frame
+        // camera[0,1,2] are the angle-axis rotation.
+        T point_cam[3];
+        ceres::AngleAxisRotatePoint(camera, point, point_cam);
 
-    // Rotate the point to the camera frame
-    // camera[0,1,2] are the angle-axis rotation.
-    T point_cam[3];
-    ceres::AngleAxisRotatePoint(camera, point, point_cam);
-    // Translate the point to the camera frame
-    point_cam[0] += camera[3];
-    point_cam[1] += camera[4];
-    point_cam[2] += camera[5];
+        // Translate the point to the camera frame
+        point_cam[0] += camera[3];
+        point_cam[1] += camera[4];
+        point_cam[2] += camera[5];
 
-    // Compute the projection
-    // the camera coordinate system has z axis.
-    T projected_x = point_cam[0] / point_cam[2];
-    T projected_y = point_cam[1] / point_cam[2];
-    // Compute residuals (difference between observed and projected)
-    // The error is the difference between the predicted and observed position.
-    residuals[0] = projected_x - T(observed_x);
-    residuals[1] = projected_y - T(observed_y);
-    return true;
-}
+        // Compute the projection
+        // the camera coordinate system has z axis.
+        T projected_x = point_cam[0] / point_cam[2];
+        T projected_y = point_cam[1] / point_cam[2]; 
 
-  // Factory to hide the construction of the CostFunction object from
-  // the client code.
-  static ceres::CostFunction *Create(const double observed_x,
-                                     const double observed_y)
-  {
-    return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 3>(
-        new ReprojectionError(observed_x, observed_y)));
-  }
+
+        // Compute residuals (difference between observed and projected)
+        // The error is the difference between the predicted and observed position.
+        residuals[0] = projected_x - T(observed_x);
+        residuals[1] = projected_y - T(observed_y);
+
+        return true;
+    }
+
+
 
   /////////////////////////////////////////////////////////////////////////////////////////
 };
@@ -554,25 +551,44 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   // IN case of "good" sideward motion, store the transformation into init_r_mat and  init_t_vec; defined above
   /////////////////////////////////////////////////////////////////////////////////////////
 
-  cv::Mat H = cv::findHomography(points0, points1, cv::RANSAC, 0.001, inlier_mask_H);
-  cv::Mat E = cv::findEssentialMat(points0, points1, intrinsics_matrix, cv::RANSAC, 0.995, 0.001, inlier_mask_E);
+  
+  // Compute and find Essential again
+  Mat E = findEssentialMat(points0, points1, intrinsics_matrix, RANSAC, 0.999, 0.001, inlier_mask_E);
+  int num_inliers_E = cv::countNonZero(inlier_mask_E);
 
-  if (cv::sum(inlier_mask_E)[0] > cv::sum(inlier_mask_H)[0]) {
-      recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
+  // Compute and find homography again
+  Mat H = findHomography(points0, points1, RANSAC, 0.001, inlier_mask_H);
+  int num_inliers_H = cv::countNonZero(inlier_mask_H);
 
-      if (std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(0, 0)) &&
-          std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(1, 0)))
-      {
-          std::cout << "Forward Motion" << std::endl;
-          return false;
-      }
-      else
-      {
-          std::cout << "Sideward Motion" << std::endl;
-      }
+  std::cout << "abas agha baghal "<< std::endl;
+    
+  if (!E.empty() && !H.empty() && num_inliers_E > num_inliers_H) {
+    
+    // Recover the initial rigid body transformation based on E
+    cv::recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
+
+    // Check if the recovered transformation is mainly given by a sideward motion
+    double abs_tx = fabs(init_t_vec.at<double>(0, 0));
+    double abs_ty = fabs(init_t_vec.at<double>(1, 0));
+    double abs_tz = fabs(init_t_vec.at<double>(2, 0));
+    bool is_sideward_motion = abs_tx > abs_ty && abs_tx > abs_tz;
+
+    if (is_sideward_motion) {
+        // Promote the pair as seed pair and set the estimated transformation
+        std::cout << "Suitable seed pair found with sideward motion!" << std::endl;
+        return false;
+    } else {
+        std::cout << "Seed pair found, but not a sideward motion." << std::endl;
+    }
   } else {
-      return false;
+    // No suitable seed pair found based on inlier masks or suitable transformation
+    return false;
+    std::cout << "No suitable seed pair found." << std::endl;
   }
+  
+  
+  
+
   /////////////////////////////////////////////////////////////////////////////////////////
 
   int ref_cam_pose_idx = seed_pair_idx0, new_cam_pose_idx = seed_pair_idx1;
@@ -687,6 +703,77 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
       }
     }
 
+    //////////////////////////////(OPTIONAL) ////////////////////////////////
+  
+    // // Implement an alternative next best view selection strategy, e.g., the one presented
+    // // in class (see Structure From Motion Revisited paper, sec. 4.2).
+    // // Just comment the basic next best view selection strategy implemented above and replace it with yours.
+
+    // // Initialize a vector to store the score for each camera pose
+    // std::vector<double> camera_scores(num_cam_poses_, 0.0);
+
+    // // Iterate over all points
+    // for (int i_pt = 0; i_pt < num_points_; i_pt++) {
+    //     // Check if the point is already added to the reconstruction
+    //     if (pts_optim_iter_[i_pt] > 0) {
+    //         // Retrieve the observation index for this point in the new camera pose
+    //         int observation_index = cam_observation_[new_cam_pose_idx][i_pt];
+            
+    //         // If the observation index is valid (i.e., the point is observed in the new camera pose)
+    //         if (observation_index >= 0) {
+    //             // Extract 3D coordinates of the point
+    //             double *point_data = pointBlockPtr(i_pt);
+    //             cv::Point3d point_3d(point_data[0], point_data[1], point_data[2]);
+
+    //             // Extract 2D coordinates of the observed point in the new camera pose
+    //             double *camera_data = cameraBlockPtr(new_cam_pose_idx);
+    //             cv::Mat r_vec = (cv::Mat_<double>(3, 1) << camera_data[0], camera_data[1], camera_data[2]);
+    //             cv::Mat t_vec = (cv::Mat_<double>(3, 1) << camera_data[3], camera_data[4], camera_data[5]);
+
+    //             cv::Mat r_mat;
+    //             cv::Rodrigues(r_vec, r_mat);
+
+    //             cv::Mat projected_point;
+    //             std::vector<cv::Point3d> object_points;
+    //             object_points.push_back(point_3d);
+    //             cv::projectPoints(object_points, r_mat, t_vec, intrinsics_matrix, cv::Mat(), projected_point);
+
+    //             // Retrieve the observed 2D point coordinates
+    //             cv::Point2d observed_point(projected_point.at<double>(0, 0), projected_point.at<double>(1, 0));
+
+    //             // Calculate the reprojection error
+    //             cv::Point2d observed_point_original(observations_[observation_index * 2], observations_[observation_index * 2 + 1]);
+    //             double reprojection_error = cv::norm(observed_point - observed_point_original);
+
+    //             // If the reprojection error is small, add the point to the reconstruction
+    //             if (reprojection_error < max_reproj_err_) {
+    //                 // Accumulate the score for this camera pose
+    //                 camera_scores[new_cam_pose_idx]++;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // // Find the camera pose with the highest score
+    // double max_score = -1.0;
+    // int selected_cam_pose_idx = -1;
+    // for (int i_cam = 0; i_cam < num_cam_poses_; i_cam++) {
+    //     // Check if the camera pose is not yet registered and has a higher score than the current maximum
+    //     if (cam_pose_optim_iter_[i_cam] == 0 && camera_scores[i_cam] > max_score) {
+    //         max_score = camera_scores[i_cam];
+    //         selected_cam_pose_idx = i_cam;
+    //     }
+    // }
+
+    // // Set the new camera pose index to the selected one
+    // new_cam_pose_idx = selected_cam_pose_idx;
+
+    // // Now new_cam_pose_idx is the index of the next camera pose to be registered
+
+
+    //////////////////////////////(OPTIONAL) ////////////////////////////////
+
+
     //////////////////////////// Code to be completed (OPTIONAL) ////////////////////////////////
     // Implement an alternative next best view selection strategy, e.g., the one presented
     // in class(see Structure From Motion Revisited paper, sec. 4.2). Just comment the basic next
@@ -796,9 +883,9 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             if (pt_3d_0.at<double>(2, 0) > 0.0 && pt_3d_1.at<double>(2, 0) > 0.0)
             {
               double *pt = pointBlockPtr(pt_idx);
-              pt[0] = hpoints4D.at<double>(0, 0) / hpoints4D.at<double>(3, 0);
-              pt[1] = hpoints4D.at<double>(1, 0) / hpoints4D.at<double>(3, 0);
-              pt[2] = hpoints4D.at<double>(2, 0) / hpoints4D.at<double>(3, 0);
+              pt[0] = x;
+              pt[1] = y;
+              pt[2] = z;  
               pts_optim_iter_[pt_idx] = 1;
               n_new_pts++;
             }
@@ -1015,7 +1102,8 @@ void BasicSfM::bundleAdjustmentIter( int new_cam_idx )
           // Add a residual block inside the Ceres solver problem
           ceres::CostFunction* cost_function =
               new ceres::AutoDiffCostFunction <ReprojectionError, 2, 6, 3>(
-                new ReprojectionError(observation[0], observation[1]));
+                // new ReprojectionError(observation[0], observation[1]));
+                new ReprojectionError(observations_[2 * i_obs], observations_[2 * i_obs + 1]));
 
 
 
