@@ -123,7 +123,7 @@ void FeatureMatcher::exhaustiveMatching()
       Mat H = findHomography(points1, points2, RANSAC, 1.0, mask_H);
       int num_inliers_H = cv::countNonZero(mask_H);
 
-
+      inlier_matches.clear();
       for (int k = 0; k < matches.size(); k++)
       {
           // Check if the match is an inlier according to the Essential Matrix
