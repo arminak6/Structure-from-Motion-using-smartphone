@@ -694,6 +694,77 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
       }
     }
 
+    //////////////////////////////(OPTIONAL) ////////////////////////////////
+
+    // // Implement an alternative next best view selection strategy, e.g., the one presented
+    // // in class (see Structure From Motion Revisited paper, sec. 4.2).
+    // // Just comment the basic next best view selection strategy implemented above and replace it with yours.
+
+    // // Initialize a vector to store the score for each camera pose
+    // std::vector<double> camera_scores(num_cam_poses_, 0.0);
+
+    // // Iterate over all points
+    // for (int i_pt = 0; i_pt < num_points_; i_pt++) {
+    //     // Check if the point is already added to the reconstruction
+    //     if (pts_optim_iter_[i_pt] > 0) {
+    //         // Retrieve the observation index for this point in the new camera pose
+    //         int observation_index = cam_observation_[new_cam_pose_idx][i_pt];
+
+    //         // If the observation index is valid (i.e., the point is observed in the new camera pose)
+    //         if (observation_index >= 0) {
+    //             // Extract 3D coordinates of the point
+    //             double *point_data = pointBlockPtr(i_pt);
+    //             cv::Point3d point_3d(point_data[0], point_data[1], point_data[2]);
+
+    //             // Extract 2D coordinates of the observed point in the new camera pose
+    //             double *camera_data = cameraBlockPtr(new_cam_pose_idx);
+    //             cv::Mat r_vec = (cv::Mat_<double>(3, 1) << camera_data[0], camera_data[1], camera_data[2]);
+    //             cv::Mat t_vec = (cv::Mat_<double>(3, 1) << camera_data[3], camera_data[4], camera_data[5]);
+
+    //             cv::Mat r_mat;
+    //             cv::Rodrigues(r_vec, r_mat);
+
+    //             cv::Mat projected_point;
+    //             std::vector<cv::Point3d> object_points;
+    //             object_points.push_back(point_3d);
+    //             cv::projectPoints(object_points, r_mat, t_vec, intrinsics_matrix, cv::Mat(), projected_point);
+
+    //             // Retrieve the observed 2D point coordinates
+    //             cv::Point2d observed_point(projected_point.at<double>(0, 0), projected_point.at<double>(1, 0));
+
+    //             // Calculate the reprojection error
+    //             cv::Point2d observed_point_original(observations_[observation_index * 2], observations_[observation_index * 2 + 1]);
+    //             double reprojection_error = cv::norm(observed_point - observed_point_original);
+
+    //             // If the reprojection error is small, add the point to the reconstruction
+    //             if (reprojection_error < max_reproj_err_) {
+    //                 // Accumulate the score for this camera pose
+    //                 camera_scores[new_cam_pose_idx]++;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // // Find the camera pose with the highest score
+    // double max_score = -1.0;
+    // int selected_cam_pose_idx = -1;
+    // for (int i_cam = 0; i_cam < num_cam_poses_; i_cam++) {
+    //     // Check if the camera pose is not yet registered and has a higher score than the current maximum
+    //     if (cam_pose_optim_iter_[i_cam] == 0 && camera_scores[i_cam] > max_score) {
+    //         max_score = camera_scores[i_cam];
+    //         selected_cam_pose_idx = i_cam;
+    //     }
+    // }
+
+    // // Set the new camera pose index to the selected one
+    // new_cam_pose_idx = selected_cam_pose_idx;
+
+    // // Now new_cam_pose_idx is the index of the next camera pose to be registered
+
+
+    //////////////////////////////(OPTIONAL) ////////////////////////////////
+
+
     //////////////////////////// Code to be completed (OPTIONAL) ////////////////////////////////
     // Implement an alternative next best view selection strategy, e.g., the one presented
     // in class(see Structure From Motion Revisited paper, sec. 4.2). Just comment the basic next
@@ -765,31 +836,28 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             // pt[2] = /*X coordinate of the estimated point */;
             /////////////////////////////////////////////////////////////////////////////////////////
 
-            int observation_0 = cam_observation_[new_cam_pose_idx][pt_idx];
-            int observation_1 = cam_observation_[cam_idx][pt_idx];
-
-            cv::Point2d point0(observations_[2 * observation_0],observations_[2 * observation_0 + 1]);
-            cv::Point2d point1(observations_[2 * observation_1], observations_[2 * observation_1 + 1]);
+            cv::Point2d point0(observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx]],
+                               observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx] + 1]),
+                point1(observations_[2 * cam_observation_[cam_idx][pt_idx]],
+                       observations_[2 * cam_observation_[cam_idx][pt_idx] + 1]);
 
             points0.emplace_back(point0);
             points1.emplace_back(point1);
 
-            cv::Mat r_mat_0, r_vec_0, t_vec_0;
-            cv::Mat r_mat_1, r_vec_1, t_vec_1;
-
-            r_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]);
-            t_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
-
-            r_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]);
-            t_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
-
+            cv::Mat r_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]),
+                    r_mat_0;
             cv::Rodrigues(r_vec_0, r_mat_0);
+            cv::Mat t_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
+            r_mat_0.copyTo(proj_mat0(cv::Rect(0, 0, 3, 3)));
+            t_vec_0.copyTo(proj_mat0(cv::Rect(3, 0, 1, 3)));
+
+            cv::Mat r_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]),
+                    r_mat_1;
             cv::Rodrigues(r_vec_1, r_mat_1);
 
-            r_mat_0.copyTo(proj_mat0(cv::Rect(0, 0, 3, 3)));
-            r_mat_1.copyTo(proj_mat1(cv::Rect(0, 0, 3, 3)));
+            cv::Mat t_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
 
-            t_vec_0.copyTo(proj_mat0(cv::Rect(3, 0, 1, 3)));
+            r_mat_1.copyTo(proj_mat1(cv::Rect(0, 0, 3, 3)));
             t_vec_1.copyTo(proj_mat1(cv::Rect(3, 0, 1, 3)));
 
             cv::triangulatePoints(proj_mat0, proj_mat1, points0, points1, hpoints4D);
@@ -806,9 +874,9 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             if (pt_3d_0.at<double>(2, 0) > 0.0 && pt_3d_1.at<double>(2, 0) > 0.0)
             {
               double *pt = pointBlockPtr(pt_idx);
-              pt[0] = hpoints4D.at<double>(0, 0) / hpoints4D.at<double>(3, 0);
-              pt[1] = hpoints4D.at<double>(1, 0) / hpoints4D.at<double>(3, 0);
-              pt[2] = hpoints4D.at<double>(2, 0) / hpoints4D.at<double>(3, 0);
+              pt[0] = x;
+              pt[1] = y;
+              pt[2] = z;
               pts_optim_iter_[pt_idx] = 1;
               n_new_pts++;
             }
@@ -1025,7 +1093,8 @@ void BasicSfM::bundleAdjustmentIter( int new_cam_idx )
           // Add a residual block inside the Ceres solver problem
           ceres::CostFunction* cost_function =
               new ceres::AutoDiffCostFunction <ReprojectionError, 2, 6, 3>(
-                new ReprojectionError(observation[0], observation[1]));
+                // new ReprojectionError(observation[0], observation[1]));
+                new ReprojectionError(observations_[2 * i_obs], observations_[2 * i_obs + 1]));
 
 
 
