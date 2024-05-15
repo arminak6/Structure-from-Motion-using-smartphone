@@ -494,6 +494,8 @@ void BasicSfM::solve()
       }
     }
 
+    cout << "Seed pairs and max corr: " << seed_pair_idx0 << " " << seed_pair_idx1 << " " << max_corr << endl;
+
     if( max_corr < 0 )
     {
       std::cout<<"No seed pair found, exiting"<<std::endl;
@@ -560,9 +562,14 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   if (cv::sum(inlier_mask_E)[0] > cv::sum(inlier_mask_H)[0]) {
       recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
 
-      if (std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(0, 0)) &&
-          std::fabs(init_t_vec.at<double>(2, 0)) > std::abs(init_t_vec.at<double>(1, 0)))
-      {
+
+      double t_x = std::abs(init_t_vec.at<double>(0)),
+              t_y = std::abs(init_t_vec.at<double>(1)),
+              t_z = std::abs(init_t_vec.at<double>(2));
+
+      cout << "t (x y z) " <<  t_x << " " << t_y << " " << t_z << endl; // TODO: remove
+      // TODO: maybe revise condition below
+      if ( t_z > t_x && t_z > t_y ){
           std::cout << "Forward Motion" << std::endl;
           return false;
       }
@@ -758,28 +765,31 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             // pt[2] = /*X coordinate of the estimated point */;
             /////////////////////////////////////////////////////////////////////////////////////////
 
-            cv::Point2d point0(observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx]],
-                               observations_[2 * cam_observation_[new_cam_pose_idx][pt_idx] + 1]),
-                point1(observations_[2 * cam_observation_[cam_idx][pt_idx]],
-                       observations_[2 * cam_observation_[cam_idx][pt_idx] + 1]);
+            int observation_0 = cam_observation_[new_cam_pose_idx][pt_idx];
+            int observation_1 = cam_observation_[cam_idx][pt_idx];
+
+            cv::Point2d point0(observations_[2 * observation_0],observations_[2 * observation_0 + 1]);
+            cv::Point2d point1(observations_[2 * observation_1], observations_[2 * observation_1 + 1]);
 
             points0.emplace_back(point0);
             points1.emplace_back(point1);
 
-            cv::Mat r_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]),
-                    r_mat_0;
-            cv::Rodrigues(r_vec_0, r_mat_0);
-            cv::Mat t_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
-            r_mat_0.copyTo(proj_mat0(cv::Rect(0, 0, 3, 3)));
-            t_vec_0.copyTo(proj_mat0(cv::Rect(3, 0, 1, 3)));
+            cv::Mat r_mat_0, r_vec_0, t_vec_0;
+            cv::Mat r_mat_1, r_vec_1, t_vec_1;
 
-            cv::Mat r_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]),
-                    r_mat_1;
+            r_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[0], cam0_data[1], cam0_data[2]);
+            t_vec_0 = (cv::Mat_<double>(3, 1) << cam0_data[3], cam0_data[4], cam0_data[5]);
+
+            r_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[0], cam1_data[1], cam1_data[2]);
+            t_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
+
+            cv::Rodrigues(r_vec_0, r_mat_0);
             cv::Rodrigues(r_vec_1, r_mat_1);
 
-            cv::Mat t_vec_1 = (cv::Mat_<double>(3, 1) << cam1_data[3], cam1_data[4], cam1_data[5]);
-
+            r_mat_0.copyTo(proj_mat0(cv::Rect(0, 0, 3, 3)));
             r_mat_1.copyTo(proj_mat1(cv::Rect(0, 0, 3, 3)));
+
+            t_vec_0.copyTo(proj_mat0(cv::Rect(3, 0, 1, 3)));
             t_vec_1.copyTo(proj_mat1(cv::Rect(3, 0, 1, 3)));
 
             cv::triangulatePoints(proj_mat0, proj_mat1, points0, points1, hpoints4D);
