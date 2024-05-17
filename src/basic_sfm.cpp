@@ -26,40 +26,37 @@ struct ReprojectionError
   // WARNING: When dealing with the AutoDiffCostFunction template parameters,
   // pay attention to the order of the template parameters
   //////////////////////////////////////////////////////////////////////////////////////////
-  ReprojectionError(double observed_x, double observed_y)
+    ReprojectionError(double observed_x, double observed_y)
       : observed_x(observed_x), observed_y(observed_y) {}
+  
+      template<typename T>
+      bool operator()(const T* const camera, const T* const point, T* residuals) const {
 
-  template<typename T>
-  bool operator()(const T* const camera, const T* const point, T* residuals) const {
+        // Rotate the point to the camera frame
+        // camera[0,1,2] are the angle-axis rotation.
+        T point_cam[3];
+        ceres::AngleAxisRotatePoint(camera, point, point_cam);
 
-    // Rotate the point to the camera frame
-    // camera[0,1,2] are the angle-axis rotation.
-    T point_cam[3];
-    ceres::AngleAxisRotatePoint(camera, point, point_cam);
-    // Translate the point to the camera frame
-    point_cam[0] += camera[3];
-    point_cam[1] += camera[4];
-    point_cam[2] += camera[5];
+        // Translate the point to the camera frame
+        point_cam[0] += camera[3];
+        point_cam[1] += camera[4];
+        point_cam[2] += camera[5];
 
-    // Compute the projection
-    // the camera coordinate system has z axis.
-    T projected_x = point_cam[0] / point_cam[2];
-    T projected_y = point_cam[1] / point_cam[2];
-    // Compute residuals (difference between observed and projected)
-    // The error is the difference between the predicted and observed position.
-    residuals[0] = projected_x - T(observed_x);
-    residuals[1] = projected_y - T(observed_y);
-    return true;
-}
+        // Compute the projection
+        // the camera coordinate system has z axis.
+        T projected_x = point_cam[0] / point_cam[2];
+        T projected_y = point_cam[1] / point_cam[2]; 
 
-  // Factory to hide the construction of the CostFunction object from
-  // the client code.
-  static ceres::CostFunction *Create(const double observed_x,
-                                     const double observed_y)
-  {
-    return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 3>(
-        new ReprojectionError(observed_x, observed_y)));
-  }
+
+        // Compute residuals (difference between observed and projected)
+        // The error is the difference between the predicted and observed position.
+        residuals[0] = projected_x - T(observed_x);
+        residuals[1] = projected_y - T(observed_y);
+
+        return true;
+    }
+
+
 
   /////////////////////////////////////////////////////////////////////////////////////////
 };
@@ -494,8 +491,6 @@ void BasicSfM::solve()
       }
     }
 
-    cout << "Seed pairs and max corr: " << seed_pair_idx0 << " " << seed_pair_idx1 << " " << max_corr << endl;
-
     if( max_corr < 0 )
     {
       std::cout<<"No seed pair found, exiting"<<std::endl;
@@ -556,30 +551,44 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
   // IN case of "good" sideward motion, store the transformation into init_r_mat and  init_t_vec; defined above
   /////////////////////////////////////////////////////////////////////////////////////////
 
-  cv::Mat H = cv::findHomography(points0, points1, cv::RANSAC, 0.001, inlier_mask_H);
-  cv::Mat E = cv::findEssentialMat(points0, points1, intrinsics_matrix, cv::RANSAC, 0.995, 0.001, inlier_mask_E);
+  
+  // Compute and find Essential again
+  Mat E = findEssentialMat(points0, points1, intrinsics_matrix, RANSAC, 0.999, 0.001, inlier_mask_E);
+  int num_inliers_E = cv::countNonZero(inlier_mask_E);
 
-  if (cv::sum(inlier_mask_E)[0] > cv::sum(inlier_mask_H)[0]) {
-      recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
+  // Compute and find homography again
+  Mat H = findHomography(points0, points1, RANSAC, 0.001, inlier_mask_H);
+  int num_inliers_H = cv::countNonZero(inlier_mask_H);
 
+  std::cout << "abas agha baghal "<< std::endl;
+    
+  if (!E.empty() && !H.empty() && num_inliers_E > num_inliers_H) {
+    
+    // Recover the initial rigid body transformation based on E
+    cv::recoverPose(E, points0, points1, intrinsics_matrix, init_r_mat, init_t_vec, inlier_mask_E);
 
-      double t_x = std::abs(init_t_vec.at<double>(0)),
-              t_y = std::abs(init_t_vec.at<double>(1)),
-              t_z = std::abs(init_t_vec.at<double>(2));
+    // Check if the recovered transformation is mainly given by a sideward motion
+    double abs_tx = fabs(init_t_vec.at<double>(0, 0));
+    double abs_ty = fabs(init_t_vec.at<double>(1, 0));
+    double abs_tz = fabs(init_t_vec.at<double>(2, 0));
+    bool is_sideward_motion = abs_tx > abs_ty && abs_tx > abs_tz;
 
-      cout << "t (x y z) " <<  t_x << " " << t_y << " " << t_z << endl; // TODO: remove
-      // TODO: maybe revise condition below
-      if ( t_z > t_x && t_z > t_y ){
-          std::cout << "Forward Motion" << std::endl;
-          return false;
-      }
-      else
-      {
-          std::cout << "Sideward Motion" << std::endl;
-      }
+    if (is_sideward_motion) {
+        // Promote the pair as seed pair and set the estimated transformation
+        std::cout << "Suitable seed pair found with sideward motion!" << std::endl;
+        return false;
+    } else {
+        std::cout << "Seed pair found, but not a sideward motion." << std::endl;
+    }
   } else {
-      return false;
+    // No suitable seed pair found based on inlier masks or suitable transformation
+    return false;
+    std::cout << "No suitable seed pair found." << std::endl;
   }
+  
+  
+  
+
   /////////////////////////////////////////////////////////////////////////////////////////
 
   int ref_cam_pose_idx = seed_pair_idx0, new_cam_pose_idx = seed_pair_idx1;
@@ -695,7 +704,7 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
     }
 
     //////////////////////////////(OPTIONAL) ////////////////////////////////
-
+  
     // // Implement an alternative next best view selection strategy, e.g., the one presented
     // // in class (see Structure From Motion Revisited paper, sec. 4.2).
     // // Just comment the basic next best view selection strategy implemented above and replace it with yours.
@@ -709,7 +718,7 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
     //     if (pts_optim_iter_[i_pt] > 0) {
     //         // Retrieve the observation index for this point in the new camera pose
     //         int observation_index = cam_observation_[new_cam_pose_idx][i_pt];
-
+            
     //         // If the observation index is valid (i.e., the point is observed in the new camera pose)
     //         if (observation_index >= 0) {
     //             // Extract 3D coordinates of the point
@@ -876,7 +885,7 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
               double *pt = pointBlockPtr(pt_idx);
               pt[0] = x;
               pt[1] = y;
-              pt[2] = z;
+              pt[2] = z;  
               pts_optim_iter_[pt_idx] = 1;
               n_new_pts++;
             }
@@ -942,89 +951,32 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
     // the previous camera and point positions were updated during this iteration.
     /////////////////////////////////////////////////////////////////////////////////////////
     // After each iteration of bundle adjustment
+    // Before bundle adjustment, save previous camera and point positions
+    std::vector<double> prev_cam_poses = parameters_;
+    std::vector<int> prev_pts_optim_iter = pts_optim_iter_;
 
-  // Before bundle adjustment, save previous camera and point positions
-  std::vector<std::vector<double>> prev_camera_positions(num_cam_poses_);
-  std::vector<std::vector<double>> prev_point_positions(num_points_);
-
-  for(int i = 0; i < num_cam_poses_; i++)
-  {
-      if(cam_pose_optim_iter_[i])
-      {
-          double *camera = cameraBlockPtr(i);
-          prev_camera_positions[i].assign(camera, camera + 6); // Store camera pose
-      }
-  }
-
-  for(int i = 0; i < num_points_; i++)
-  {
-      if(pts_optim_iter_[i])
-      {
-          double *point = pointBlockPtr(i);
-          prev_point_positions[i].assign(point, point + 3); // Store point position
-      }
-  }
-
-
-
-      // Check for divergence based on the change in camera and point positions
-    double camera_change_threshold = 0.1; // Example threshold for camera position change
-    double point_change_threshold = 0.1;  // Example threshold for point position change
-    bool divergence_detected = false;
-
-    // Compare previous and updated camera positions
-    for(int i = 0; i < num_cam_poses_; i++)
-    {
-        if(cam_pose_optim_iter_[i])
-        {
+    // Execute an iteration of bundle adjustment
+    bundleAdjustmentIter(new_cam_pose_idx);
+    double some_threshold = 1e-1;
+    // After bundle adjustment, check for divergence
+    for (int i = 0; i < num_cam_poses_; i++) {
+        if (cam_pose_optim_iter_[i] > 0) {
+            double *prev_camera = &prev_cam_poses[i * camera_block_size_];
             double *camera = cameraBlockPtr(i);
-            std::vector<double> prev_camera = prev_camera_positions[i];
-
-            // Calculate Euclidean distance between previous and updated camera positions
-            double camera_change = 0.0;
-            for(int j = 0; j < 6; j++)
-                camera_change += std::pow(camera[j] - prev_camera[j], 2);
-            camera_change = std::sqrt(camera_change);
-
-            // Check if camera position change exceeds threshold
-            if(camera_change > camera_change_threshold)
-            {
-                divergence_detected = true;
-                break;
+            double dist = 0;
+            for (int j = 0; j < camera_block_size_; j++) {
+                dist += pow(camera[j] - prev_camera[j], 2);
+            }
+            dist = sqrt(dist);
+            if (dist > some_threshold) { 
+                // Reconstruction has diverged, reset and return false
+                parameters_ = prev_cam_poses;
+                pts_optim_iter_ = prev_pts_optim_iter;
+                return false;
             }
         }
     }
 
-    // Compare previous and updated point positions
-    for(int i = 0; i < num_points_; i++)
-    {
-        if(pts_optim_iter_[i])
-        {
-            double *point = pointBlockPtr(i);
-            std::vector<double> prev_point = prev_point_positions[i];
-
-            // Calculate Euclidean distance between previous and updated point positions
-            double point_change = 0.0;
-            for(int j = 0; j < 3; j++)
-                point_change += std::pow(point[j] - prev_point[j], 2);
-            point_change = std::sqrt(point_change);
-
-            // Check if point position change exceeds threshold
-            if(point_change > point_change_threshold)
-            {
-                divergence_detected = true;
-                break;
-            }
-        }
-    }
-
-    // If divergence is detected or any other condition for a bad reconstruction is met, return false
-    if(divergence_detected )
-    {
-        std::cout << "Bad reconstruction detected. Resetting reconstruction." << std::endl; 
-        reset();
-        return false;
-    }
 
 
 
@@ -1181,3 +1133,7 @@ int BasicSfM:: rejectOuliers()
   }
   return num_ouliers;
 }
+
+
+
+
