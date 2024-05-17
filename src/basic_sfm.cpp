@@ -694,75 +694,77 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
             }
         }
 
-        //////////////////////////////(OPTIONAL) ////////////////////////////////
+//////////////////////////////(OPTIONAL) ////////////////////////////////
+    
+  // Implement an alternative next best view selection strategy, e.g., the one presented
+  // in class (see Structure From Motion Revisited paper, sec. 4.2).
+  // Just comment the basic next best view selection strategy implemented above and replace it with yours.
 
-        // // Implement an alternative next best view selection strategy, e.g., the one presented
-        // // in class (see Structure From Motion Revisited paper, sec. 4.2).
-        // // Just comment the basic next best view selection strategy implemented above and replace it with yours.
+  // Initialize a vector to store the score for each camera pose
+  // std::vector<double> camera_scores(num_cam_poses_, 0.0);
 
-        // // Initialize a vector to store the score for each camera pose
-        // std::vector<double> camera_scores(num_cam_poses_, 0.0);
+  // // Iterate over all points
+  // for (int i_pt = 0; i_pt < num_points_; i_pt++) {
+  //     // Check if the point is already added to the reconstruction
+  //     if (pts_optim_iter_[i_pt] > 0) {
+  //         // Iterate over all camera poses
+  //         for (int i_cam = 0; i_cam < num_cam_poses_; i_cam++) {
+  //             // Skip if the camera pose is already optimized
+  //             if (cam_pose_optim_iter_[i_cam] > 0) continue;
 
-        // // Iterate over all points
-        // for (int i_pt = 0; i_pt < num_points_; i_pt++) {
-        //     // Check if the point is already added to the reconstruction
-        //     if (pts_optim_iter_[i_pt] > 0) {
-        //         // Retrieve the observation index for this point in the new camera pose
-        //         int observation_index = cam_observation_[new_cam_pose_idx][i_pt];
+  //             // Retrieve the observation index for this point in the camera pose
+  //             int observation_index = cam_observation_[i_cam][i_pt];
 
-        //         // If the observation index is valid (i.e., the point is observed in the new camera pose)
-        //         if (observation_index >= 0) {
-        //             // Extract 3D coordinates of the point
-        //             double *point_data = pointBlockPtr(i_pt);
-        //             cv::Point3d point_3d(point_data[0], point_data[1], point_data[2]);
+  //             // If the observation index is valid (i.e., the point is observed in this camera pose)
+  //             if (observation_index >= 0) {
+  //                 // Extract 3D coordinates of the point
+  //                 double *point_data = pointBlockPtr(i_pt);
+  //                 cv::Point3d point_3d(point_data[0], point_data[1], point_data[2]);
 
-        //             // Extract 2D coordinates of the observed point in the new camera pose
-        //             double *camera_data = cameraBlockPtr(new_cam_pose_idx);
-        //             cv::Mat r_vec = (cv::Mat_<double>(3, 1) << camera_data[0], camera_data[1], camera_data[2]);
-        //             cv::Mat t_vec = (cv::Mat_<double>(3, 1) << camera_data[3], camera_data[4], camera_data[5]);
+  //                 // Extract 2D coordinates of the observed point in the camera pose
+  //                 double *camera_data = cameraBlockPtr(i_cam);
+  //                 cv::Mat r_vec = (cv::Mat_<double>(3, 1) << camera_data[0], camera_data[1], camera_data[2]);
+  //                 cv::Mat t_vec = (cv::Mat_<double>(3, 1) << camera_data[3], camera_data[4], camera_data[5]);
 
-        //             cv::Mat r_mat;
-        //             cv::Rodrigues(r_vec, r_mat);
+  //                 cv::Mat r_mat;
+  //                 cv::Rodrigues(r_vec, r_mat);
 
-        //             cv::Mat projected_point;
-        //             std::vector<cv::Point3d> object_points;
-        //             object_points.push_back(point_3d);
-        //             cv::projectPoints(object_points, r_mat, t_vec, intrinsics_matrix, cv::Mat(), projected_point);
+  //                 std::vector<cv::Point3d> object_points;
+  //                 object_points.push_back(point_3d);
+  //                 std::vector<cv::Point2d> projected_points;
+  //                 cv::projectPoints(object_points, r_vec, t_vec, intrinsics_matrix, cv::Mat(), projected_points);
 
-        //             // Retrieve the observed 2D point coordinates
-        //             cv::Point2d observed_point(projected_point.at<double>(0, 0), projected_point.at<double>(1, 0));
+  //                 // Retrieve the observed 2D point coordinates
+  //                 cv::Point2d observed_point(projected_points[0].x, projected_points[0].y);
 
-        //             // Calculate the reprojection error
-        //             cv::Point2d observed_point_original(observations_[observation_index * 2], observations_[observation_index * 2 + 1]);
-        //             double reprojection_error = cv::norm(observed_point - observed_point_original);
+  //                 // Calculate the reprojection error
+  //                 cv::Point2d observed_point_original(observations_[observation_index * 2], observations_[observation_index * 2 + 1]);
+  //                 double reprojection_error = cv::norm(observed_point - observed_point_original);
 
-        //             // If the reprojection error is small, add the point to the reconstruction
-        //             if (reprojection_error < max_reproj_err_) {
-        //                 // Accumulate the score for this camera pose
-        //                 camera_scores[new_cam_pose_idx]++;
-        //             }
-        //         }
-        //     }
-        // }
+  //                 // If the reprojection error is small, add the point to the reconstruction
+  //                 if (reprojection_error < max_reproj_err_) {
+  //                     // Accumulate the score for this camera pose
+  //                     camera_scores[i_cam]++;
+  //                 }
+  //             }
+  //         }
+  //     }
+  // }
 
-        // // Find the camera pose with the highest score
-        // double max_score = -1.0;
-        // int selected_cam_pose_idx = -1;
-        // for (int i_cam = 0; i_cam < num_cam_poses_; i_cam++) {
-        //     // Check if the camera pose is not yet registered and has a higher score than the current maximum
-        //     if (cam_pose_optim_iter_[i_cam] == 0 && camera_scores[i_cam] > max_score) {
-        //         max_score = camera_scores[i_cam];
-        //         selected_cam_pose_idx = i_cam;
-        //     }
-        // }
-
-        // // Set the new camera pose index to the selected one
-        // new_cam_pose_idx = selected_cam_pose_idx;
-
-        // // Now new_cam_pose_idx is the index of the next camera pose to be registered
+  // // Find the camera pose with the highest score
+  // double max_score = -1.0;
+  // int selected_cam_pose_idx = -1;
+  // for (int i_cam = 0; i_cam < num_cam_poses_ ; i_cam++) {
+  //     // Check if the camera pose is not yet registered and has a higher score than the current maximum
+  //     if (cam_pose_optim_iter_[i_cam] == 0 && camera_scores[i_cam] > max_score) {
+  //         max_score = camera_scores[i_cam];
+  //         std::cout << "dadasham abbas"; // Debug output
+  //         selected_cam_pose_idx = i_cam;
+  //     }
+  // }
 
 
-        //////////////////////////////(OPTIONAL) ////////////////////////////////
+    //////////////////////////////(OPTIONAL) ////////////////////////////////
 
 
         //////////////////////////// Code to be completed (OPTIONAL) ////////////////////////////////
