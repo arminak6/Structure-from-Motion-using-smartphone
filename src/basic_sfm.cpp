@@ -957,7 +957,7 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
 
     // Execute an iteration of bundle adjustment
     bundleAdjustmentIter(new_cam_pose_idx);
-    double some_threshold = 1e-1;
+    double dist_threshold = 1e-1;
     // After bundle adjustment, check for divergence
     for (int i = 0; i < num_cam_poses_; i++) {
         if (cam_pose_optim_iter_[i] > 0) {
@@ -968,10 +968,11 @@ bool BasicSfM::incrementalReconstruction( int seed_pair_idx0, int seed_pair_idx1
                 dist += pow(camera[j] - prev_camera[j], 2);
             }
             dist = sqrt(dist);
-            if (dist > some_threshold) { 
+            if (dist > dist_threshold) {
                 // Reconstruction has diverged, reset and return false
                 parameters_ = prev_cam_poses;
                 pts_optim_iter_ = prev_pts_optim_iter;
+                cout << "Task 7 false" << endl;
                 return false;
             }
         }
